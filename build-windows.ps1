@@ -72,7 +72,11 @@ try {
     Invoke-Checked -Tool 'git' -Arguments @('diff', '--cached', '--check')
     Invoke-Checked -Tool 'go' -Arguments @('mod', 'download')
     Invoke-Checked -Tool 'go' -Arguments @('mod', 'verify')
-    Invoke-Checked -Tool 'go' -Arguments @('vet', '-tags', 'menubar', './...')
+    # Match the upstream Windows CI scope. Full-package vet includes _test.go
+    # files with Unix-only references (getCredentialsFilePath and Setsid).
+    # Keep full-package vet and the full race suite in the Linux workflow job.
+    Write-Host 'Windows scope: vet and test internal/menubar, then build the application.'
+    Invoke-Checked -Tool 'go' -Arguments @('vet', '-tags', 'menubar', './internal/menubar')
     Invoke-Checked -Tool 'go' -Arguments @('test', '-tags', 'menubar', '-count=1', './internal/menubar')
 
     $env:GOARCH = $Architecture
@@ -100,7 +104,7 @@ try {
         go_version = $goVersion
         built_at_utc = [DateTime]::UtcNow.ToString('o')
         build_tags = @('menubar')
-        tests_here = 'Windows tray package tests and tagged go vet; full race suite is a separate CI job.'
+        tests_here = 'Windows internal/menubar vet and tests only; full-package vet and full race suite are required in the Linux CI job.'
         binary_sha256 = $hash
     } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $outDir "build-info-windows-$Architecture.json") -Encoding UTF8
 
