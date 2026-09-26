@@ -2,9 +2,9 @@
 <#
 Place this file in the onWatch repository root.
 Builds the existing browser-dashboard + Windows tray application; not an installer.
-Windows-only checks run here. Full race-enabled tests run in windows-build.yml.
+Build-only mode requested by the user: no go test or go vet is executed.
 Based on onllm-dev/onWatch build files inspected at commit d8309522f3419d66030aed73fbe895b9eea6fb08.
-This helper has not been executed on Windows; a successful CI run is required.
+This helper has not been executed on Windows here. Build success does not imply test success.
 Never include .env, auth.json, databases, or account tokens in a release artifact.
 #>
 [CmdletBinding()]
@@ -61,25 +61,16 @@ try {
     )
     $version = "$baseVersion-custom.$shortCommit"
     if ($dirty) { $version += '.dirty' }
-    $hostArch = ((Invoke-Checked -Tool 'go' -Arguments @('env', 'GOHOSTARCH')) -join '').Trim()
     $goVersion = ((Invoke-Checked -Tool 'go' -Arguments @('version')) -join '').Trim()
 
-    # Run native Windows checks before selecting a cross-compilation target.
+    # Build only: dependency integrity is kept, but all tests and vet are skipped.
     $env:GOOS = 'windows'
-    $env:GOARCH = $hostArch
+    $env:GOARCH = $Architecture
     $env:CGO_ENABLED = '0'
-    Invoke-Checked -Tool 'git' -Arguments @('diff', '--check')
-    Invoke-Checked -Tool 'git' -Arguments @('diff', '--cached', '--check')
+    Write-Host 'BUILD ONLY: skipping all tests and go vet.'
     Invoke-Checked -Tool 'go' -Arguments @('mod', 'download')
     Invoke-Checked -Tool 'go' -Arguments @('mod', 'verify')
-    # Match the upstream Windows CI scope. Full-package vet includes _test.go
-    # files with Unix-only references (getCredentialsFilePath and Setsid).
-    # Keep full-package vet and the full race suite in the Linux workflow job.
-    Write-Host 'Windows scope: vet and test internal/menubar, then build the application.'
-    Invoke-Checked -Tool 'go' -Arguments @('vet', '-tags', 'menubar', './internal/menubar')
-    Invoke-Checked -Tool 'go' -Arguments @('test', '-tags', 'menubar', '-count=1', './internal/menubar')
 
-    $env:GOARCH = $Architecture
     $outDir = Join-Path $root 'dist'
     New-Item -ItemType Directory -Path $outDir -Force | Out-Null
     $binaryName = "onwatch-windows-$Architecture.exe"
@@ -104,14 +95,14 @@ try {
         go_version = $goVersion
         built_at_utc = [DateTime]::UtcNow.ToString('o')
         build_tags = @('menubar')
-        tests_here = 'Windows internal/menubar vet and tests only; full-package vet and full race suite are required in the Linux CI job.'
+        tests_here = 'NOT RUN: build-only mode; go test and go vet intentionally skipped.'
         binary_sha256 = $hash
     } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $outDir "build-info-windows-$Architecture.json") -Encoding UTF8
 
     Write-Host "Built: $output"
     Write-Host "Version: $version"
     Write-Host 'This is a development EXE, not a signed installer.'
-    Write-Host 'Require the full GitHub Actions test job to pass before distributing a release.'
+    Write-Host 'Tests and vet were not run. This output is an untested development build.'
 }
 finally {
     foreach ($name in $savedEnvironment.Keys) {
