@@ -1,0 +1,72 @@
+# Add this file alongside the existing CI; do not replace upstream CI.
+# Also add build-windows.ps1 at the repository root.
+# No provider keys or personal account tokens are needed by this workflow.
+name: Windows EXE
+
+'on':
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-exe-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Full tests and race checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Verify dependencies and changes
+        run: |
+          go mod download
+          go mod verify
+          git diff --check
+          go vet ./...
+      - name: Run upstream full race-enabled suite
+        run: bash ./app.sh --test
+      - name: Validate tagged tray code
+        run: |
+          go vet -tags menubar ./...
+          go test -race -tags menubar -count=1 ./internal/menubar ./internal/web ./cmd/onwatch
+
+  build:
+    name: Windows x64 executable
+    needs: test
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Test Windows tray and build EXE
+        shell: pwsh
+        run: ./build-windows.ps1 -Architecture amd64
+      - name: Upload only explicit build outputs
+        uses: actions/upload-artifact@v4
+        with:
+          name: onwatch-windows-amd64-${{ github.sha }}
+          path: |
+            dist/onwatch-windows-amd64.exe
+            dist/LICENSE
+            dist/SHA256SUMS-windows-amd64.txt
+            dist/build-info-windows-amd64.json
+          if-no-files-found: error
+          retention-days: 14
